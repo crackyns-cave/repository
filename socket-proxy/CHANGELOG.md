@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.3.1
+
+- Bump to latest HAProxy
+- Other container updates
+
 ## 1.2.3
 
 - Bump HAProxy from 3.2.18-r0 to 3.2.19-r0 (Alpine 3.23 package update)
