@@ -1,0 +1,178 @@
+#!/usr/bin/with-contenv bashio
+# shellcheck shell=bash
+#
+# Docker Socket Proxy - Home Assistant add-on
+# Copyright (C) 2025 Fergus Stevens
+#
+# SPDX-License-Identifier: GPL-3.0-or-later
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation, either version 3 of the License, or
+# (at your option) any later version.
+#
+
+# Startup banner
+bashio::log.info ""
+bashio::log.info "  +------------------------------------+"
+bashio::log.info "  |  ____             _                |"
+bashio::log.info "  | |  _ \  ___   ___| | _____ _ __    |"
+bashio::log.info "  | | | | |/ _ \ / __| |/ / _ \ '__|   |"
+bashio::log.info "  | | |_| | (_) | (__|   <  __/ |      |"
+bashio::log.info "  | |____/ \___/ \___|_|\_\___|_|      |"
+bashio::log.info "  |                                    |"
+bashio::log.info "  |  ____             _        _       |"
+bashio::log.info "  | / ___|  ___   ___| | _____| |_     |"
+bashio::log.info "  | \___ \ / _ \ / __| |/ / _ \ __|    |"
+bashio::log.info "  |  ___) | (_) | (__|   <  __/ |_     |"
+bashio::log.info "  | |____/ \___/ \___|_|\_\___|\__|    |"
+bashio::log.info "  |                                    |"
+bashio::log.info "  |  ____                              |"
+bashio::log.info "  | |  _ \ _ __ _____  ___   _         |"
+bashio::log.info "  | | |_) | '__/ _ \ \/ / | | |        |"
+bashio::log.info "  | |  __/| | | (_) >  <| |_| |        |"
+bashio::log.info "  | |_|   |_|  \___/_/\_\\\__,|        |"
+bashio::log.info "  |                      |___/         |"
+bashio::log.info "  +------------------------------------+"
+bashio::log.info ""
+
+# Version and config info
+ADDON_VERSION="1.2.3"
+UPSTREAM_PIN="linuxserver/docker-socket-proxy:3.2.19-r0-ls84"
+bashio::log.info "Version:   ${ADDON_VERSION}"
+bashio::log.info "Upstream:  ${UPSTREAM_PIN}"
+
+# Convert bashio bool (true/false) to 0/1 for haproxy env() checks
+bool2int() {
+    if bashio::config.true "$1"; then echo 1; else echo 0; fi
+}
+
+# Return 0 if the argument is a valid IPv4/IPv6 address or CIDR range
+is_valid_cidr() {
+    local octet='(25[0-5]|2[0-4][0-9]|1[0-9]{2}|[1-9][0-9]|[0-9])'
+    # IPv4 with optional /0-32
+    [[ "$1" =~ ^(${octet}\.){3}${octet}(/([0-9]|[1-2][0-9]|3[0-2]))?$ ]] && return 0
+    # IPv6 with optional /0-128 (must contain at least one colon; dots allowed for IPv4-mapped form)
+    [[ "$1" =~ ^[0-9a-fA-F:.]*:[0-9a-fA-F:.]*(\/([0-9]|[1-9][0-9]|1([01][0-9]|2[0-8])))?$ ]] && return 0
+    return 1
+}
+
+# Read options and export as environment variables
+ALLOW_START=$(bool2int 'ALLOW_START')
+ALLOW_STOP=$(bool2int 'ALLOW_STOP')
+ALLOW_RESTARTS=$(bool2int 'ALLOW_RESTARTS')
+ALLOW_PAUSE=$(bool2int 'ALLOW_PAUSE')
+ALLOW_UNPAUSE=$(bool2int 'ALLOW_UNPAUSE')
+AUTH=$(bool2int 'AUTH')
+BUILD=$(bool2int 'BUILD')
+COMMIT=$(bool2int 'COMMIT')
+CONFIGS=$(bool2int 'CONFIGS')
+CONTAINERS=$(bool2int 'CONTAINERS')
+DISABLE_IPV6=$(bool2int 'DISABLE_IPV6')
+DISTRIBUTION=$(bool2int 'DISTRIBUTION')
+EVENTS=$(bool2int 'EVENTS')
+EXEC=$(bool2int 'EXEC')
+GRPC=$(bool2int 'GRPC')
+IMAGES=$(bool2int 'IMAGES')
+INFO=$(bool2int 'INFO')
+LOG_LEVEL=$(bashio::config 'LOG_LEVEL')
+NETWORKS=$(bool2int 'NETWORKS')
+NODES=$(bool2int 'NODES')
+PING=$(bool2int 'PING')
+PLUGINS=$(bool2int 'PLUGINS')
+POST=$(bool2int 'POST')
+SECRETS=$(bool2int 'SECRETS')
+SERVICES=$(bool2int 'SERVICES')
+SESSION=$(bool2int 'SESSION')
+SWARM=$(bool2int 'SWARM')
+SYSTEM=$(bool2int 'SYSTEM')
+TASKS=$(bool2int 'TASKS')
+VERSION=$(bool2int 'VERSION')
+VOLUMES=$(bool2int 'VOLUMES')
+
+export ALLOW_START ALLOW_STOP ALLOW_RESTARTS ALLOW_PAUSE ALLOW_UNPAUSE AUTH BUILD COMMIT CONFIGS
+export CONTAINERS DISABLE_IPV6 DISTRIBUTION EVENTS EXEC GRPC IMAGES INFO
+export LOG_LEVEL NETWORKS NODES PING PLUGINS POST SECRETS SERVICES
+export SESSION SWARM SYSTEM TASKS VERSION VOLUMES
+
+PORT=$(bashio::config 'port')
+
+# Detect Docker socket location
+if [ -S /var/run/docker.sock ]; then
+    SOCKET_PATH=/var/run/docker.sock
+elif [ -S /run/docker.sock ]; then
+    SOCKET_PATH=/run/docker.sock
+else
+    bashio::log.fatal "Docker socket not found! Ensure 'docker_api: true' is set in config.yaml."
+    exit 1
+fi
+export SOCKET_PATH
+
+# Determine bind protocol
+if [ "${DISABLE_IPV6}" = "1" ]; then
+    BIND_PROTO=":${PORT}"
+else
+    BIND_PROTO="ipv6@:${PORT}"
+fi
+
+# Prepare haproxy config
+mkdir -p /run/haproxy
+
+# Process source-IP allowlist
+ALLOWED_SRC_ACL=""
+ALLOWED_SRC_REJECT=""
+: > /run/haproxy/allowed_ips.acl
+while IFS= read -r cidr; do
+    cidr="${cidr//[[:space:]]/}"
+    [[ -z "$cidr" || "$cidr" == "null" ]] && continue
+    if is_valid_cidr "$cidr"; then
+        echo "$cidr" >> /run/haproxy/allowed_ips.acl
+    else
+        bashio::log.warning "ALLOWED_CIDRS: skipping invalid entry '${cidr}'"
+    fi
+done < <(bashio::config 'ALLOWED_CIDRS[]')
+if [[ -s /run/haproxy/allowed_ips.acl ]]; then
+    ALLOWED_SRC_ACL="acl allowed_src src -f /run/haproxy/allowed_ips.acl"
+    ALLOWED_SRC_REJECT="tcp-request connection reject if !allowed_src"
+fi
+
+sed \
+    -e "s|@@BIND_PROTO@@|${BIND_PROTO}|g" \
+    -e "s|@@ALLOWED_SRC_ACL@@|${ALLOWED_SRC_ACL}|g" \
+    -e "s|@@ALLOWED_SRC_REJECT@@|${ALLOWED_SRC_REJECT}|g" \
+    /templates/haproxy.cfg > /run/haproxy/haproxy.cfg
+
+# Build list of enabled endpoints
+ENABLED=()
+for OPT in AUTH BUILD COMMIT CONFIGS CONTAINERS DISTRIBUTION EVENTS EXEC \
+           GRPC IMAGES INFO NETWORKS NODES PING PLUGINS SECRETS SERVICES \
+           SESSION SWARM SYSTEM TASKS VERSION VOLUMES; do
+    if [ "${!OPT}" = "1" ]; then
+        ENABLED+=("${OPT}")
+    fi
+done
+
+# Build list of enabled write operations
+WRITE_OPS=()
+if [ "${POST}" = "1" ]; then WRITE_OPS+=("POST"); fi
+if [ "${ALLOW_START}" = "1" ]; then WRITE_OPS+=("ALLOW_START"); fi
+if [ "${ALLOW_STOP}" = "1" ]; then WRITE_OPS+=("ALLOW_STOP"); fi
+if [ "${ALLOW_RESTARTS}" = "1" ]; then WRITE_OPS+=("ALLOW_RESTARTS"); fi
+if [ "${ALLOW_PAUSE}" = "1" ]; then WRITE_OPS+=("ALLOW_PAUSE"); fi
+if [ "${ALLOW_UNPAUSE}" = "1" ]; then WRITE_OPS+=("ALLOW_UNPAUSE"); fi
+
+bashio::log.info "Port:      ${PORT}"
+bashio::log.info "IPv6:      $([ "${DISABLE_IPV6}" = "1" ] && echo 'disabled' || echo 'enabled')"
+bashio::log.info "Log level: ${LOG_LEVEL}"
+bashio::log.info "Enabled:   ${ENABLED[*]:-none}"
+if [ ${#WRITE_OPS[@]} -gt 0 ]; then
+    bashio::log.warning "Write ops: ${WRITE_OPS[*]}"
+fi
+if [[ -s /run/haproxy/allowed_ips.acl ]]; then
+    bashio::log.info "Allowlist: $(paste -sd, /run/haproxy/allowed_ips.acl)"
+else
+    bashio::log.info "Allowlist: disabled (all sources permitted)"
+fi
+bashio::log.info ""
+
+exec haproxy -f /run/haproxy/haproxy.cfg -W -db

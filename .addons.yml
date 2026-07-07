@@ -5,3 +5,4 @@ addons:
     repository: crackyn/ha_second_core
     target: ha_second_core
     image: ghcr.io/crackyn/ha-second-core/{arch}
+

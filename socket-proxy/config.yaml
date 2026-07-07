@@ -1,0 +1,90 @@
+name: Docker Socket Proxy
+description: >-
+  Filtered, read-only Docker socket proxy using HAProxy.
+  Requires Protection mode to be disabled (Info tab) for Docker socket access.
+slug: socket-proxy
+version: 1.2.4
+url: https://github.com/crackyns-cave/repository/socket-proxy
+arch:
+  - amd64
+  - aarch64
+startup: services
+boot: auto
+init: false
+host_network: true
+docker_api: true
+full_access: true
+protected: false
+ports:
+  "2375/tcp": 2375
+ports_description:
+  "2375/tcp": Docker API proxy port
+options:
+  port: 2375
+  ALLOW_START: false
+  ALLOW_STOP: false
+  ALLOW_RESTARTS: false
+  ALLOW_PAUSE: false
+  ALLOW_UNPAUSE: false
+  ALLOWED_CIDRS: []
+  AUTH: false
+  BUILD: false
+  COMMIT: false
+  CONFIGS: false
+  CONTAINERS: false
+  DISABLE_IPV6: true
+  DISTRIBUTION: false
+  EVENTS: true
+  EXEC: false
+  GRPC: false
+  IMAGES: false
+  INFO: false
+  LOG_LEVEL: info
+  NETWORKS: false
+  NODES: false
+  PING: true
+  PLUGINS: false
+  POST: false
+  SECRETS: false
+  SERVICES: false
+  SESSION: false
+  SWARM: false
+  SYSTEM: false
+  TASKS: false
+  VERSION: true
+  VOLUMES: false
+schema:
+  port: port
+  ALLOW_START: bool
+  ALLOW_STOP: bool
+  ALLOW_RESTARTS: bool
+  ALLOW_PAUSE: bool
+  ALLOW_UNPAUSE: bool
+  ALLOWED_CIDRS:
+    - str
+  AUTH: bool
+  BUILD: bool
+  COMMIT: bool
+  CONFIGS: bool
+  CONTAINERS: bool
+  DISABLE_IPV6: bool
+  DISTRIBUTION: bool
+  EVENTS: bool
+  EXEC: bool
+  GRPC: bool
+  IMAGES: bool
+  INFO: bool
+  LOG_LEVEL: "list(info|notice|warning|err|debug)"
+  NETWORKS: bool
+  NODES: bool
+  PING: bool
+  PLUGINS: bool
+  POST: bool
+  SECRETS: bool
+  SERVICES: bool
+  SESSION: bool
+  SWARM: bool
+  SYSTEM: bool
+  TASKS: bool
+  VERSION: bool
+  VOLUMES: bool
