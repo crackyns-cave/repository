@@ -9,3 +9,5 @@ FROM $BUILD_FROM
 RUN apk add --no-cache haproxy
 
 COPY rootfs /
+
+RUN chmod 755 /etc/services.d/socket-proxy/run /etc/services.d/socket-proxy/finish
